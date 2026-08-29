@@ -3,11 +3,25 @@ __pycache__/
 *.py[cod]
 
 # Virtual environment
+.venv/
+venv/
 backend/.venv/
 
 # Environment variables
 .env
+.env.*
+!.env.example
 backend/.env
+
+# Node
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Vercel
+.vercel/
 
 # IDE
 .vscode/
