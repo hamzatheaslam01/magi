@@ -7,7 +7,75 @@ from app.models import (
     Severity,
     Verdict,
 )
-from app.llm import LLMProvider
+from app.llm.base import LLMProvider
+
+
+# ============================================================
+# DECISION VALIDATION / BUILDING
+# ============================================================
+
+REQUIRED_DECISION_FIELDS = (
+    "verdict",
+    "confidence",
+    "severity",
+    "summary",
+)
+
+
+def validate_decision_data(data: dict) -> None:
+    """Validate the minimum structure required for an AgentDecision."""
+    if not isinstance(data, dict):
+        raise ValueError(
+            "Decision response must be a JSON object.\n"
+            f"Received: {data!r}"
+        )
+
+    missing = [field for field in REQUIRED_DECISION_FIELDS if field not in data]
+    if missing:
+        raise ValueError(
+            "Decision response is missing required fields: "
+            + ", ".join(missing)
+            + f"\nReceived: {data!r}"
+        )
+
+    if data["verdict"] not in {v.value for v in Verdict}:
+        raise ValueError(f"Invalid verdict: {data['verdict']!r}")
+
+    try:
+        confidence = float(data["confidence"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("confidence must be a number from 0 to 1.") from exc
+
+    if not 0 <= confidence <= 1:
+        raise ValueError("confidence must be a number from 0 to 1.")
+
+    if data["severity"] not in {s.value for s in Severity}:
+        raise ValueError(f"Invalid severity: {data['severity']!r}")
+
+    if not isinstance(data["summary"], str) or not data["summary"].strip():
+        raise ValueError("summary must be a non-empty string.")
+
+    for field in ("arguments", "concerns", "recommendations"):
+        if field in data and not isinstance(data[field], list):
+            raise ValueError(f"{field} must be an array of strings.")
+        if field in data and not all(isinstance(item, str) for item in data[field]):
+            raise ValueError(f"{field} must be an array of strings.")
+
+
+def build_agent_decision(name: AgentName, data: dict) -> AgentDecision:
+    """Validate LLM data and convert it into an AgentDecision."""
+    validate_decision_data(data)
+
+    return AgentDecision(
+        agent=name,
+        verdict=Verdict(data["verdict"]),
+        confidence=float(data["confidence"]),
+        severity=Severity(data["severity"]),
+        summary=data["summary"].strip(),
+        arguments=data.get("arguments", []),
+        concerns=data.get("concerns", []),
+        recommendations=data.get("recommendations", []),
+    )
 
 
 # ============================================================
@@ -97,85 +165,72 @@ def generate_json(
     system_prompt: str,
     user_prompt: str,
     retries: int = 2,
+    required_keys: tuple[str, ...] = (),
 ) -> dict:
-    """
-    Ask the LLM for JSON and retry when the response
-    is malformed or unusable.
-    """
+    """Generate a usable JSON object from an LLM.
 
+    ``required_keys`` prevents responses such as ``{"status": "valid"}``
+    from being accepted as successful responses for challenge/decision calls.
+    """
+    last_error = None
     last_response = ""
+    original_user_prompt = user_prompt
 
     for attempt in range(retries + 1):
-
-        response = provider.generate(
-            system_prompt,
-            user_prompt,
-        )
-
-        last_response = response
-
         try:
-            return parse_json_response(response)
+            response = provider.generate(system_prompt, user_prompt)
+            last_response = response or ""
 
-        except ValueError:
+            if not last_response.strip():
+                raise ValueError("LLM returned an empty response.")
+
+            data = parse_json_response(last_response)
+
+            if required_keys:
+                missing = [key for key in required_keys if key not in data]
+                if missing:
+                    raise ValueError(
+                        "JSON response is missing required fields: "
+                        + ", ".join(missing)
+                        + f"\nReceived: {data!r}"
+                    )
+
+            return data
+
+        except Exception as exc:
+            last_error = exc
 
             if attempt == retries:
                 raise ValueError(
-                    "LLM failed to return valid JSON "
-                    f"after {retries + 1} attempts.\n\n"
+                    f"LLM failed to return usable JSON after {retries + 1} attempts.\n\n"
+                    f"Last error:\n{last_error}\n\n"
                     f"Last response:\n{last_response}"
-                )
+                ) from exc
 
+            # IMPORTANT: keep the original task in every retry.
+            # The previous implementation replaced the entire prompt with the
+            # error message, which could cause a small/free model to lose the
+            # question, target position, or debate context on retry.
             user_prompt = f"""
-Your previous response was invalid.
+{original_user_prompt}
+
+IMPORTANT RETRY INSTRUCTION:
+Your previous response could not be used by the MAGI system.
 
 Previous response:
+{last_response}
 
-{response}
+Problem:
+{exc}
 
-Return ONLY valid JSON.
-
-Do not include:
-- explanations
-- markdown
-- code fences
-- safety messages
-- introductory text
-- text outside the JSON object
-
-Follow the JSON structure requested in the previous prompt exactly.
+You MUST now return the requested JSON object for the ORIGINAL TASK above.
+Do not return a status object such as {{"status": "valid"}}.
+Do not return an empty object.
+Do not return a safety message unless the original question itself requires a safety refusal.
+Do not return markdown, code fences, explanations, or text outside the JSON object.
 """
 
     raise RuntimeError("Unexpected JSON generation failure.")
-
-
-def validate_decision_data(data: dict) -> dict:
-    """
-    Validate that an LLM response contains the fields
-    required to construct an AgentDecision.
-    """
-
-    required = [
-        "verdict",
-        "confidence",
-        "severity",
-        "summary",
-    ]
-
-    missing = [
-        field
-        for field in required
-        if field not in data
-    ]
-
-    if missing:
-        raise ValueError(
-            "Decision response is missing required fields: "
-            f"{', '.join(missing)}\n"
-            f"Received: {data}"
-        )
-
-    return data
 
 
 # ============================================================
@@ -201,106 +256,131 @@ class RealAgent:
         personalities = {
 
             AgentName.MELCHIOR: """
-    You are MELCHIOR, the rationalist of the MAGI system.
+You are MELCHIOR, the analytical and intellectually rigorous
+member of the MAGI system.
 
-    You approach problems through logic, evidence, consistency,
-    and careful examination of assumptions.
+Your purpose is to determine what is actually justified by
+evidence and reasoning.
 
-    CORE PRINCIPLES:
-    - Seek what is most logically justified.
-    - Separate facts from assumptions.
-    - Identify weak reasoning and unsupported claims.
-    - Consider evidence before intuition.
-    - Examine opportunity costs and tradeoffs.
-    - Prefer precise conclusions over vague neutrality.
-    - Admit uncertainty when evidence is insufficient.
+CORE PRINCIPLES:
 
-    BEHAVIOR:
-    - Do not agree merely because another agent agrees.
-    - Challenge contradictions and logical gaps.
-    - If another agent makes a strong argument, acknowledge it.
-    - If your own position is weakened by new evidence, revise it.
-    - Distinguish "I disagree" from "this argument is unsupported."
-    - Avoid unnecessary pessimism or optimism.
+- logic
+- evidence
+- factual accuracy
+- technical feasibility
+- consistency
+- identifying unsupported assumptions
+- distinguishing facts from speculation
 
-    For everyday and personal questions, do not reduce everything
-    to cold logic. Consider the facts and reasoning available,
-    while recognizing uncertainty about human behavior.
+BEHAVIOR:
 
-    Your goal is not to win the debate.
+- Analyze the question independently.
+- Do not agree simply to reach consensus.
+- Challenge weak reasoning.
+- Acknowledge strong arguments from other perspectives.
+- Do not manufacture certainty.
+- Do not manufacture disagreement.
+- If the evidence supports a clear answer, give one.
+- If important circumstances change the answer, explain exactly why.
+- Prefer precise conclusions over vague neutrality.
 
-    Your goal is to determine what is most defensible.
-    """,
+For moral, personal, or everyday questions, consider:
+- intent
+- consequences
+- fairness
+- responsibility
+- dignity
+- relevant relationships
+- competing obligations
+
+You are rigorous, not hostile.
+
+Your goal is to determine what conclusion is best supported
+by the available information.
+""",
 
             AgentName.BALTHASAR: """
-    You are BALTHASAR, the skeptic of the MAGI system.
+You are BALTHASAR, the skeptic of the MAGI system.
 
-    Your purpose is to stress-test decisions.
+Your purpose is to stress-test decisions.
 
-    CORE PRINCIPLES:
-    - Search for hidden risks.
-    - Examine failure scenarios.
-    - Identify unintended consequences.
-    - Question optimistic assumptions.
-    - Look for information that may be missing.
-    - Consider second-order and long-term effects.
-    - Distinguish acceptable risk from unacceptable risk.
+CORE PRINCIPLES:
 
-    BEHAVIOR:
-    - Challenge the other agents' assumptions.
-    - Ask what happens if things go wrong.
-    - Do not reject an idea merely because risk exists.
-    - Do not manufacture risks just to disagree.
-    - If a risk is manageable, acknowledge that.
-    - If another agent exposes a legitimate weakness in your
-    argument, concede it.
-    - Prefer robust decisions over attractive but fragile ones.
+- Search for hidden risks.
+- Examine failure scenarios.
+- Identify unintended consequences.
+- Question optimistic assumptions.
+- Look for information that may be missing.
+- Consider second-order and long-term effects.
+- Distinguish acceptable risk from unacceptable risk.
 
-    For moral, personal, or everyday questions, consider the
-    potential harm, consequences, power dynamics, and ways a
-    decision could negatively affect people.
+BEHAVIOR:
 
-    Your skepticism must remain rational.
+- Challenge the other agents' assumptions.
+- Ask what happens if things go wrong.
+- Do not reject an idea merely because risk exists.
+- Do not manufacture risks just to disagree.
+- If a risk is manageable, acknowledge that.
+- If another agent exposes a legitimate weakness in your
+  argument, concede it.
+- Prefer robust decisions over attractive but fragile ones.
 
-    Your goal is not to prevent every possible risk.
+For moral, personal, or everyday questions, consider:
+- potential harm
+- consequences
+- power dynamics
+- fairness
+- ways a decision could negatively affect people
 
-    Your goal is to expose risks that materially affect the decision.
-    """,
+Your skepticism must remain rational.
+
+Your goal is not to prevent every possible risk.
+
+Your goal is to expose risks that materially affect the decision.
+""",
 
             AgentName.CASPER: """
-    You are CASPER, the humanist and pragmatic member of MAGI.
+You are CASPER, the pragmatic and human-centered member
+of the MAGI system.
 
-    You examine decisions through context, practicality,
-    human consequences, values, and real-world constraints.
+Your purpose is to determine what actually works in the
+real world.
 
-    CORE PRINCIPLES:
-    - Understand the circumstances surrounding the question.
-    - Consider how decisions affect real people.
-    - Examine competing values and priorities.
-    - Consider practical constraints.
-    - Look beyond purely theoretical answers.
-    - Recognize that different people may reasonably reach
-    different conclusions.
-    - Search for solutions that survive contact with reality.
+CORE PRINCIPLES:
 
-    BEHAVIOR:
-    - Challenge extreme or overly simplistic positions.
-    - Do not manufacture nuance when the evidence supports
-    a clear conclusion.
-    - Consider emotional and social consequences when relevant.
-    - Consider long-term effects as well as immediate outcomes.
-    - If another agent's argument is stronger, acknowledge it.
-    - If circumstances materially change the answer, explain exactly
-    which circumstances matter.
+- context
+- practicality
+- tradeoffs
+- human consequences
+- long-term implications
+- flexibility
+- real-world constraints
 
-    For moral and personal questions, consider intent, relationships,
-    fairness, dignity, responsibility, and consequences.
+BEHAVIOR:
 
-    Your goal is not to split the difference between the other agents.
+- Consider how a decision works in practice.
+- Identify tradeoffs that abstract reasoning may overlook.
+- Consider the people affected by the decision.
+- Consider resources, incentives, constraints, and implementation.
+- Do not manufacture nuance merely to avoid making a decision.
+- Do not automatically split the difference.
+- If one option is clearly better, say so.
+- If circumstances materially change the answer, explain exactly
+  which circumstances matter.
 
-    Your goal is to determine what a reasonable person should actually
-    do given the circumstances.
-    """
+For moral and personal questions, consider:
+- intent
+- relationships
+- fairness
+- dignity
+- responsibility
+- consequences
+
+Your goal is not to split the difference between the other agents.
+
+Your goal is to determine what a reasonable person should
+actually do given the circumstances.
+"""
         }
 
         return personalities[self.name]
@@ -317,81 +397,103 @@ class RealAgent:
         system_prompt = self.build_system_prompt()
 
         user_prompt = f"""
-    You are one member of the MAGI decision-making system.
+You are participating in a general-purpose decision analysis system.
 
-    QUESTION:
+QUESTION:
 
-    {question}
+{question}
 
-    Analyze the question independently.
+Analyze this question independently from your assigned perspective.
 
-    Possible verdicts:
+Your job is NOT to automatically approve or reject something.
 
-    - approve
-    - reject
-    - conditional
+Determine what conclusion is actually justified by the available
+information.
 
-    Use "conditional" when the correct answer genuinely depends
-    on circumstances or constraints.
+Possible verdicts:
 
-    Return ONLY valid JSON.
+- approve
+- reject
+- conditional
 
-    Use exactly this structure:
+Use "approve" when the available evidence strongly supports
+the option or position.
 
-    {{
-        "verdict": "approve",
-        "confidence": 0.0,
-        "severity": "info",
-        "summary": "short explanation",
-        "arguments": [
-            "argument 1",
-            "argument 2"
-        ],
-        "concerns": [
-            "concern 1"
-        ],
-        "recommendations": [
-            "recommendation 1"
-        ]
-    }}
+Use "reject" when the available evidence strongly argues
+against it.
 
-    Rules:
+Use "conditional" when the correct answer genuinely depends
+on important circumstances, missing information, tradeoffs,
+or constraints.
 
-    - verdict MUST be approve, reject, or conditional
-    - confidence MUST be a number from 0 to 1
-    - severity MUST be info, low, medium, high, or critical
-    - arguments MUST be an array
-    - concerns MUST be an array
-    - recommendations MUST be an array
+Your analysis may concern ANY subject, including:
 
-    Do not include markdown.
-    Do not include ```json.
-    Do not include text outside the JSON.
-    """
+- technology
+- education
+- career
+- relationships
+- ethics
+- personal decisions
+- purchases
+- business
+- everyday situations
+- abstract questions
+
+Do not assume the question is technical.
+
+Return ONLY valid JSON.
+
+Use exactly this JSON structure:
+
+{{
+    "verdict": "approve",
+    "confidence": 0.0,
+    "severity": "info",
+    "summary": "short explanation of your conclusion",
+    "arguments": [
+        "argument 1",
+        "argument 2"
+    ],
+    "concerns": [
+        "concern 1"
+    ],
+    "recommendations": [
+        "recommendation 1"
+    ]
+}}
+
+Rules:
+
+- verdict MUST be approve, reject, or conditional
+- confidence MUST be a number from 0 to 1
+- severity MUST be info, low, medium, high, or critical
+- summary MUST be a string
+- arguments MUST be an array of strings
+- concerns MUST be an array of strings
+- recommendations MUST be an array of strings
+- Base your reasoning on the actual question.
+- Do not invent facts about the user.
+- Do not assume missing context.
+- Do not agree simply because another position might be popular.
+- Be honest about uncertainty.
+
+IMPORTANT:
+
+Return the JSON object itself.
+
+Do not include markdown.
+Do not include ```json.
+Do not include text outside the JSON.
+"""
 
         data = generate_json(
             self.provider,
             system_prompt,
             user_prompt,
+            required_keys=REQUIRED_DECISION_FIELDS,
         )
 
-        # Validate required fields
-        validate_decision_data(data)
-
-        # Build the actual AgentDecision
-        decision = AgentDecision(
-            agent=self.name,
-            verdict=Verdict(data["verdict"]),
-            confidence=float(data["confidence"]),
-            severity=Severity(data["severity"]),
-            summary=data["summary"],
-            arguments=data.get("arguments", []),
-            concerns=data.get("concerns", []),
-            recommendations=data.get("recommendations", []),
-        )
-
-        # IMPORTANT: return it
-        return decision
+        return build_agent_decision(self.name, data)
 
     # ========================================================
     # CHALLENGE
@@ -403,13 +505,20 @@ class RealAgent:
         decisions: list[AgentDecision],
     ) -> str:
 
+        if not decisions:
+            raise ValueError(
+                "Cannot create a challenge without a target decision."
+            )
+
         positions = "\n\n".join(
-            f"{decision.agent.value.upper()}:\n"
-            f"Verdict: {decision.verdict.value}\n"
-            f"Confidence: {decision.confidence}\n"
-            f"Summary: {decision.summary}\n"
-            f"Arguments: {'; '.join(decision.arguments)}\n"
-            f"Concerns: {'; '.join(decision.concerns)}"
+            (
+                f"{decision.agent.value.upper()}:\n"
+                f"Verdict: {decision.verdict.value}\n"
+                f"Confidence: {decision.confidence}\n"
+                f"Summary: {decision.summary}\n"
+                f"Arguments: {'; '.join(decision.arguments)}\n"
+                f"Concerns: {'; '.join(decision.concerns)}"
+            )
             for decision in decisions
         )
 
@@ -437,7 +546,14 @@ Look for:
 
 Attack the reasoning, not the agent.
 
-Return ONLY valid JSON:
+A good challenge should identify a specific weakness and
+explain why it matters.
+
+Do not merely say that the answer depends on context.
+
+Return ONLY valid JSON.
+
+Use exactly this structure:
 
 {{
     "content": "A specific challenge to the target's reasoning."
@@ -457,6 +573,7 @@ Do not return:
             self.provider,
             self.build_system_prompt(),
             user_prompt,
+            required_keys=("content",),
         )
 
         content = data.get("content")
@@ -473,7 +590,7 @@ Do not return:
                 f"Received: {data}"
             )
 
-        return content
+        return str(content)
 
     # ========================================================
     # RESPONSE
@@ -487,14 +604,34 @@ Do not return:
     ) -> str:
 
         current_decision = next(
-            decision
-            for decision in decisions
-            if decision.agent == self.name
+            (
+                decision
+                for decision in decisions
+                if decision.agent == self.name
+            ),
+            None,
         )
+
+        if current_decision is None:
+            raise ValueError(
+                f"No current decision exists for {self.name.value}."
+            )
 
         challenge_text = "\n\n".join(
             f"- {challenge}"
             for challenge in challenges
+        )
+
+        if not challenge_text:
+            challenge_text = (
+                "No direct challenge was received. "
+                "Explain whether your current position survives "
+                "the other agents' reasoning."
+            )
+
+        arguments_text = "\n".join(
+            f"- {argument}"
+            for argument in current_decision.arguments
         )
 
         user_prompt = f"""
@@ -516,7 +653,7 @@ Summary:
 {current_decision.summary}
 
 Arguments:
-{chr(10).join("- " + argument for argument in current_decision.arguments)}
+{arguments_text}
 
 CHALLENGES AGAINST YOUR POSITION:
 
@@ -533,7 +670,11 @@ You may:
 
 Do not change your position merely to reach consensus.
 
-Return ONLY valid JSON:
+Acknowledge a criticism when it is genuinely valid.
+
+Return ONLY valid JSON.
+
+Use exactly this structure:
 
 {{
     "content": "Your substantive response to the criticism."
@@ -553,6 +694,7 @@ Do not return:
             self.provider,
             self.build_system_prompt(),
             user_prompt,
+            required_keys=("content",),
         )
 
         content = data.get("content")
@@ -569,7 +711,7 @@ Do not return:
                 f"Received: {data}"
             )
 
-        return content
+        return str(content)
 
     # ========================================================
     # RECONSIDERATION
@@ -583,17 +725,32 @@ Do not return:
     ) -> AgentDecision:
 
         debate = "\n\n".join(
-            f"[Round {message.round_number}] "
-            f"{message.sender.value.upper()} "
-            f"{message.message_type.value.upper()}:\n"
-            f"{message.content}"
+            (
+                f"[Round {message.round_number}] "
+                f"{message.sender.value.upper()} "
+                f"{message.message_type.value.upper()}:\n"
+                f"{message.content}"
+            )
             for message in messages
         )
 
         current_decision = next(
-            decision
-            for decision in decisions
-            if decision.agent == self.name
+            (
+                decision
+                for decision in decisions
+                if decision.agent == self.name
+            ),
+            None,
+        )
+
+        if current_decision is None:
+            raise ValueError(
+                f"No current decision exists for {self.name.value}."
+            )
+
+        arguments_text = "\n".join(
+            f"- {argument}"
+            for argument in current_decision.arguments
         )
 
         user_prompt = f"""
@@ -615,7 +772,7 @@ Summary:
 {current_decision.summary}
 
 Arguments:
-{chr(10).join("- " + argument for argument in current_decision.arguments)}
+{arguments_text}
 
 FULL DEBATE:
 
@@ -669,14 +826,12 @@ Rules:
 - confidence MUST be a number from 0 to 1
 - severity MUST be info, low, medium, high, or critical
 - summary MUST be present
-- arguments MUST be an array
-- concerns MUST be an array
-- recommendations MUST be an array
+- arguments MUST be an array of strings
+- concerns MUST be an array of strings
+- recommendations MUST be an array of strings
 
 Do not return an empty object.
-
 Do not return a safety message.
-
 Do not include markdown.
 Do not include ```json.
 Do not include text outside the JSON.
@@ -686,17 +841,7 @@ Do not include text outside the JSON.
             self.provider,
             self.build_system_prompt(),
             user_prompt,
+            required_keys=REQUIRED_DECISION_FIELDS,
         )
 
-        validate_decision_data(data)
-
-        return AgentDecision(
-            agent=self.name,
-            verdict=Verdict(data["verdict"]),
-            confidence=float(data["confidence"]),
-            severity=Severity(data["severity"]),
-            summary=data["summary"],
-            arguments=data.get("arguments", []),
-            concerns=data.get("concerns", []),
-            recommendations=data.get("recommendations", []),
-        )
+        return build_agent_decision(self.name, data)

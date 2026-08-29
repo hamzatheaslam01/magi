@@ -1,69 +1,60 @@
+from app.llm import OpenRouterProvider
+from app.real_agents import RealAgent
+from app.models import AgentName
 from app.debate import DebateEngine
-from app.llm.openrouter import OpenRouterProvider
 
 
 provider = OpenRouterProvider(
-    model="openrouter/free"
+    model="openai/gpt-oss-20b"
 )
 
-engine = DebateEngine(provider)
+agents = [
+    RealAgent(AgentName.MELCHIOR, provider),
+    RealAgent(AgentName.BALTHASAR, provider),
+    RealAgent(AgentName.CASPER, provider),
+]
 
+engine = DebateEngine(agents)
 
-question = (
-    "Should I learn C++ before learning Python?"
-)
-
+question = "Should a startup build its application using microservices?"
 
 state = engine.start(question)
 
+print()
+print("=" * 60)
+print("QUESTION")
+print("=" * 60)
+print(state.question)
 
-print("\n")
-print("=" * 70)
-print("                         MAGI")
-print("=" * 70)
-
-print("\nQUESTION:")
-print(question)
-
-
-print("\n")
-print("=" * 70)
+print()
+print("=" * 60)
 print("FINAL DECISIONS")
-print("=" * 70)
+print("=" * 60)
 
 for decision in state.decisions:
 
-    print(
-        f"\n{decision.agent.value.upper()}"
-    )
+    print()
+    print(decision.agent.value.upper())
+    print("-" * 40)
+    print("VERDICT:", decision.verdict.value.upper())
+    print("CONFIDENCE:", decision.confidence)
+    print("SEVERITY:", decision.severity.value)
+    print()
+    print("SUMMARY:")
+    print(decision.summary)
 
-    print(
-        f"VERDICT: "
-        f"{decision.verdict.value.upper()}"
-    )
-
-    print(
-        f"CONFIDENCE: "
-        f"{decision.confidence}"
-    )
-
-    print(
-        f"SUMMARY: "
-        f"{decision.summary}"
-    )
-
-
-print("\n")
-print("=" * 70)
-print("                         DEBATE")
-print("=" * 70)
+print()
+print("=" * 60)
+print("DEBATE MESSAGES")
+print("=" * 60)
 
 for message in state.messages:
 
     print(
-        f"\n[ROUND {message.round_number}] "
+        f"[Round {message.round_number}] "
         f"{message.sender.value.upper()} "
-        f"{message.message_type.value.upper()}"
+        f"{message.message_type.value.upper()}:"
     )
 
     print(message.content)
+    print()

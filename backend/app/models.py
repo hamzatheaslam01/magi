@@ -69,3 +69,13 @@ class DebateState(BaseModel):
     question: str
     decisions: list[AgentDecision] = Field(default_factory=list)
     messages: list[DebateMessage] = Field(default_factory=list)
+
+
+class SynthesisResult(BaseModel):
+    verdict: Verdict
+    confidence: float = Field(ge=0.0, le=1.0)
+    synthesis: str
+    key_agreements: list[str] = Field(default_factory=list)
+    key_disagreements: list[str] = Field(default_factory=list)
+    key_risks: list[str] = Field(default_factory=list)
+    recommendation: str

@@ -1,12 +1,7 @@
-from abc import ABC, abstractmethod
+from .base import LLMProvider
+from .openrouter import OpenRouterProvider
 
-
-class LLMProvider(ABC):
-
-    @abstractmethod
-    def generate(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-    ) -> str:
-        pass
+__all__ = [
+    "LLMProvider",
+    "OpenRouterProvider",
+]

@@ -8,47 +8,65 @@ from app.models import (
     MessageType,
 )
 from app.real_agents import RealAgent
-from app.llm import LLMProvider
 
 
 class DebateEngine:
 
-    def __init__(self, provider: LLMProvider):
+    def __init__(self, agents: list[RealAgent]):
 
         self.agents = {
-            name: RealAgent(
-                name=name,
-                provider=provider,
-            )
-            for name in AgentName
+            agent.name: agent
+            for agent in agents
         }
+
+    # ========================================================
+    # ROUND 1
+    # ========================================================
 
     async def _initial_positions(
         self,
         question: str,
     ) -> list[AgentDecision]:
 
-        tasks = [
-            asyncio.to_thread(
-                agent.initial_position,
-                question,
-            )
-            for agent in self.agents.values()
+        async def run_agent(agent):
+
+            try:
+                return await asyncio.to_thread(
+                    agent.initial_position,
+                    question,
+                )
+
+            except Exception as exc:
+
+                print(
+                    f"[WARNING] {agent.name.value.upper()} "
+                    f"failed during initial position: {exc}"
+                )
+
+                return None
+
+        results = await asyncio.gather(
+            *[
+                run_agent(agent)
+                for agent in self.agents.values()
+            ]
+        )
+
+        return [
+            result
+            for result in results
+            if result is not None
         ]
 
-        return await asyncio.gather(*tasks)
+    # ========================================================
+    # ROUND 2
+    # ========================================================
 
     async def _challenges(
         self,
         question: str,
         decisions: list[AgentDecision],
     ):
-
-        # Each agent challenges the next agent.
-        #
-        # MELCHIOR → BALTHASAR
-        # BALTHASAR → CASPER
-        # CASPER → MELCHIOR
 
         targets = {
             AgentName.MELCHIOR: AgentName.BALTHASAR,
@@ -59,31 +77,67 @@ class DebateEngine:
         async def create_challenge(agent_name):
 
             agent = self.agents[agent_name]
-
             target = targets[agent_name]
 
             target_decision = next(
-                d for d in decisions
-                if d.agent == target
+                (
+                    decision
+                    for decision in decisions
+                    if decision.agent == target
+                ),
+                None,
             )
 
-            challenge = agent.challenge(
-                question,
-                [target_decision],
-            )
+            if target_decision is None:
 
-            return (
-                agent_name,
-                target,
-                challenge,
-            )
+                print(
+                    f"[INFO] {agent_name.value.upper()} "
+                    f"cannot challenge "
+                    f"{target.value.upper()} because "
+                    f"the target has no decision."
+                )
 
-        tasks = [
-            create_challenge(agent_name)
-            for agent_name in self.agents
+                return None
+
+            try:
+
+                challenge = await asyncio.to_thread(
+                    agent.challenge,
+                    question,
+                    [target_decision],
+                )
+
+                return (
+                    agent_name,
+                    target,
+                    challenge,
+                )
+
+            except Exception as exc:
+
+                print(
+                    f"[WARNING] {agent_name.value.upper()} "
+                    f"failed during challenge: {exc}"
+                )
+
+                return None
+
+        results = await asyncio.gather(
+            *[
+                create_challenge(agent_name)
+                for agent_name in self.agents
+            ]
+        )
+
+        return [
+            result
+            for result in results
+            if result is not None
         ]
 
-        return await asyncio.gather(*tasks)
+    # ========================================================
+    # ROUND 3
+    # ========================================================
 
     async def _responses(
         self,
@@ -96,28 +150,60 @@ class DebateEngine:
 
             agent = self.agents[agent_name]
 
-            # Find the challenge aimed at this agent.
             incoming = [
                 challenge
-                for sender, target, challenge
-                in challenges
+                for sender, target, challenge in challenges
                 if target == agent_name
             ]
 
-            response = agent.respond(
-                question,
-                incoming,
-                decisions,
-            )
+            if not incoming:
 
-            return agent_name, response
+                print(
+                    f"[INFO] {agent_name.value.upper()} "
+                    f"received no usable challenge."
+                )
 
-        tasks = [
-            create_response(agent_name)
-            for agent_name in self.agents
+                return None
+
+            try:
+
+                response = await asyncio.to_thread(
+                    agent.respond,
+                    question,
+                    incoming,
+                    decisions,
+                )
+
+                return (
+                    agent_name,
+                    response,
+                )
+
+            except Exception as exc:
+
+                print(
+                    f"[WARNING] {agent_name.value.upper()} "
+                    f"failed during response: {exc}"
+                )
+
+                return None
+
+        results = await asyncio.gather(
+            *[
+                create_response(agent_name)
+                for agent_name in self.agents
+            ]
+        )
+
+        return [
+            result
+            for result in results
+            if result is not None
         ]
 
-        return await asyncio.gather(*tasks)
+    # ========================================================
+    # ROUND 4
+    # ========================================================
 
     async def _reconsider(
         self,
@@ -128,20 +214,40 @@ class DebateEngine:
 
         async def reconsider_agent(agent):
 
-            revised = agent.reconsider(
-                question,
-                decisions,
-                messages,
-            )
+            try:
 
-            return revised
+                return await asyncio.to_thread(
+                    agent.reconsider,
+                    question,
+                    decisions,
+                    messages,
+                )
 
-        tasks = [
-            reconsider_agent(agent)
-            for agent in self.agents.values()
+            except Exception as exc:
+
+                print(
+                    f"[WARNING] {agent.name.value.upper()} "
+                    f"failed during reconsideration: {exc}"
+                )
+
+                return None
+
+        results = await asyncio.gather(
+            *[
+                reconsider_agent(agent)
+                for agent in self.agents.values()
+            ]
+        )
+
+        return [
+            result
+            for result in results
+            if result is not None
         ]
 
-        return await asyncio.gather(*tasks)
+    # ========================================================
+    # FULL DEBATE
+    # ========================================================
 
     async def run(
         self,
@@ -152,10 +258,9 @@ class DebateEngine:
             question=question
         )
 
-        # ==============================================
+        # ====================================================
         # ROUND 1
-        # INITIAL POSITIONS
-        # ==============================================
+        # ====================================================
 
         decisions = await self._initial_positions(
             question
@@ -174,10 +279,9 @@ class DebateEngine:
 
         state.decisions = decisions
 
-        # ==============================================
+        # ====================================================
         # ROUND 2
-        # DIRECTED CHALLENGES
-        # ==============================================
+        # ====================================================
 
         challenges = await self._challenges(
             question,
@@ -198,10 +302,9 @@ class DebateEngine:
                 )
             )
 
-        # ==============================================
+        # ====================================================
         # ROUND 3
-        # RESPONSES
-        # ==============================================
+        # ====================================================
 
         responses = await self._responses(
             question,
@@ -220,10 +323,9 @@ class DebateEngine:
                 )
             )
 
-        # ==============================================
+        # ====================================================
         # ROUND 4
-        # RECONSIDERATION
-        # ==============================================
+        # ====================================================
 
         revised = await self._reconsider(
             question,
@@ -242,9 +344,14 @@ class DebateEngine:
                 )
             )
 
-        state.decisions = revised
+        if revised:
+            state.decisions = revised
 
         return state
+
+    # ========================================================
+    # SYNCHRONOUS ENTRY POINT
+    # ========================================================
 
     def start(
         self,

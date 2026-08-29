@@ -14,7 +14,7 @@ agents = [
     RealAgent(AgentName.CASPER, provider),
 ]
 
-question = "Should I learn Python before C++?"
+question = "Should I confront a friend who repeatedly disrespects them?"
 
 
 print()
