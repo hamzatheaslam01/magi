@@ -1,36 +1,109 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MAGI
 
-## Getting Started
+A multi-agent AI debate system that examines questions from three different perspectives, challenges those perspectives through structured debate, and produces a final synthesis and consensus.
 
-First, run the development server:
+> One question. Three perspectives. A debate between minds, distilled into consensus.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## What is MAGI?
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+MAGI is designed to make AI reasoning feel less like receiving an answer from a single model and more like observing a panel of independent minds reason through a problem.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+A user submits a question. Three MAGI units independently form their positions, challenge one another, respond to criticism, and reconsider their views before the system produces a final result.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The goal is not simply to generate three answers. It is to create **interaction, disagreement, reconsideration, and convergence**.
 
-## Learn More
+## How It Works
 
-To learn more about Next.js, take a look at the following resources:
+MAGI processes each question through four debate rounds:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 1. Initial Positions
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Each MAGI unit independently analyzes the question and establishes an initial position.
 
-## Deploy on Vercel
+### 2. Directed Challenges
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The units challenge the reasoning of another MAGI unit, creating direct disagreement rather than three isolated responses.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 3. Responses
+
+Agents respond to the challenges directed toward their positions and defend or refine their reasoning.
+
+### 4. Reconsideration
+
+Each agent reviews the debate and determines whether its original position should remain unchanged or be revised.
+
+After the debate, MAGI produces:
+
+- Final agent positions
+- Debate transcript
+- MAGI synthesis
+- Final verdict
+- Confidence score
+- Consensus statement
+
+## The MAGI Units
+
+MAGI currently consists of three independent reasoning units:
+
+- **MELCHIOR**
+- **BALTHASAR**
+- **CASPER**
+
+Each unit is intended to approach questions from a distinct perspective, allowing genuine disagreement and cooperation to emerge during the debate.
+
+## Features
+
+- Multi-agent AI debate
+- Three independent MAGI units
+- Four-stage debate process
+- Directed agent-to-agent challenges
+- Agent reconsideration
+- Real-time backend streaming
+- Server-Sent Events (SSE)
+- Live debate log
+- Live agent status updates
+- Agent verdict indicators
+- Confidence scoring
+- Animated typewriter-style output
+- MAGI synthesis
+- Final consensus
+- Keyboard navigation for long logs and synthesis
+- Hidden scrollbars
+- Responsive mobile interface
+- OpenRouter LLM integration
+
+## Architecture
+
+```text
+                         USER
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   NEXT.JS   │
+                    │  FRONTEND   │
+                    └──────┬──────┘
+                           │
+                           │ HTTP / SSE
+                           ▼
+                    ┌─────────────┐
+                    │   FASTAPI   │
+                    │   BACKEND   │
+                    └──────┬──────┘
+                           │
+                           ▼
+              ┌─────────────────────────┐
+              │ Streaming Debate Engine │
+              └────────────┬────────────┘
+                           │
+             ┌─────────────┼─────────────┐
+             ▼             ▼             ▼
+        ┌─────────┐   ┌─────────┐   ┌─────────┐
+        │MELCHIOR │   │BALTHASAR│   │  CASPER │
+        └────┬────┘   └────┬────┘   └────┬────┘
+             │             │             │
+             └─────────────┼─────────────┘
+                           ▼
+                    ┌─────────────┐
+                    │  OpenRouter │
+                    │     LLM     │
+                    └─────────────┘
