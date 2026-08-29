@@ -64,13 +64,13 @@ def encode_sse(event: dict) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health() -> dict[str, str]:
     """Return backend availability."""
     return {"status": "online"}
 
 
-@app.post("/debate")
+@app.post("/api/debate")
 async def debate(request: DebateRequest):
     """Run a complete debate and return the final backend state."""
     try:
@@ -93,7 +93,7 @@ async def debate(request: DebateRequest):
     return completed
 
 
-@app.post("/debate/stream")
+@app.post("/api/debate/stream")
 async def debate_stream(request: DebateRequest):
     """Stream real MAGI round and agent events over SSE."""
 
