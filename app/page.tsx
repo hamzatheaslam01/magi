@@ -2,12 +2,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 
-type AgentState =
-  | "idle"
-  | "thinking"
-  | "approve"
-  | "conditional"
-  | "reject";
+type AgentState = "idle" | "thinking" | "approve" | "conditional" | "reject";
 
 type Agent = {
   name: string;
@@ -15,54 +10,79 @@ type Agent = {
   state: AgentState;
 };
 
+const AGENT_JP: Record<string, string> = {
+  BALTHASAR: "バルタザール",
+  CASPER: "カスパル",
+  MELCHIOR: "メルキオール",
+};
+
+const STATUS_TEXT: Record<AgentState, string> = {
+  idle: "STANDBY",
+  thinking: "THINKING",
+  approve: "AGREE",
+  conditional: "CONDITIONAL",
+  reject: "DISAGREE",
+};
+
+const STATUS_JP: Record<AgentState, string> = {
+  idle: "待機中",
+  thinking: "思考中",
+  approve: "同意",
+  conditional: "条件付",
+  reject: "拒否",
+};
+
 const initialAgents: Agent[] = [
-  {
-    name: "BALTHASAR",
-    number: "2",
-    state: "idle",
-  },
-  {
-    name: "CASPER",
-    number: "3",
-    state: "idle",
-  },
-  {
-    name: "MELCHIOR",
-    number: "1",
-    state: "idle",
-  },
+  { name: "BALTHASAR", number: "2", state: "idle" },
+  { name: "CASPER", number: "3", state: "idle" },
+  { name: "MELCHIOR", number: "1", state: "idle" },
 ];
 
-function AgentPanel({
+function AgentBlock({
   name,
   number,
   state,
+  position,
 }: {
   name: string;
   number: string;
   state: AgentState;
+  position: "top" | "bottom-left" | "bottom-right";
 }) {
-  const statusText = {
-    idle: "STANDBY",
-    thinking: "THINKING",
-    approve: "AGREE",
-    conditional: "CONDITIONAL",
-    reject: "DISAGREE",
-  }[state];
+  return (
+    <div className={`agent-block agent-block--${position} state-${state}`}>
+      <div className="agent-chip">
+        <div className="agent-chip-name">
+          {name}
+          <span className="agent-chip-number"> {number}</span>
+        </div>
+        <div className="agent-chip-jp">{AGENT_JP[name]}</div>
+      </div>
+
+      <div className="agent-readout">
+        <span className="agent-readout-label">
+          {STATUS_TEXT[state]}
+          <br />
+          {STATUS_JP[state]}
+        </span>
+        <span className="agent-readout-hatch" />
+      </div>
+    </div>
+  );
+}
+
+function EqBars({ active }: { active: boolean }) {
+  const bars = Array.from({ length: 10 });
 
   return (
-    <div className={`agent agent-${state}`}>
-      <div className="agent-inner">
-        <div className="agent-name">
-          {name}
-          <span>  {number}</span>
-        </div>
-
-        <div className="agent-status">
-          <span>{statusText}</span>
-
-        </div>
-      </div>
+    <div className={`eq-bars ${active ? "is-active" : ""}`}>
+      {bars.map((_, index) => (
+        <span
+          key={index}
+          className="eq-bar"
+          style={{ animationDelay: `${index * 80}ms` }}
+        />
+      ))}
     </div>
   );
 }
@@ -84,9 +104,7 @@ export default function Home() {
 
   function setAgentState(name: string, state: AgentState) {
     setAgents((current) =>
-      current.map((agent) =>
-        agent.name === name ? { ...agent, state } : agent
-      )
+      current.map((agent) => (agent.name === name ? { ...agent, state } : agent))
     );
   }
 
@@ -108,7 +126,7 @@ export default function Home() {
   // The backend already streams events progressively. Rendering each event
   // immediately keeps the SSE reader responsive instead of blocking it behind
   // a frontend typing animation.
-    const logQueueRef = useRef<string[]>([]);
+  const logQueueRef = useRef<string[]>([]);
   const logTypingRef = useRef(false);
   const synthesisAnimationRef = useRef(0);
 
@@ -199,14 +217,12 @@ export default function Home() {
     setConfidence(null);
     setConsensus("AWAITING DEBATE");
     logAutoScrollRef.current = true;
-    synthesisAutoScrollRef.current = true;
-    setSynthesis("MAGI CORE PROCESSING");
+    synthesisAutoScrollRef.current = true;    
     setDebateLog([]);
     setAgents(initialAgents.map((agent) => ({ ...agent, state: "thinking" })));
 
     try {
-      const apiBaseUrl =
-        process.env.NEXT_PUBLIC_API_URL || "/api";
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "/api";
 
       const response = await fetch(`${apiBaseUrl}/debate/stream`, {
         method: "POST",
@@ -243,7 +259,9 @@ export default function Home() {
         switch (event.type) {
           case "analysis_started":
             typeLogEntry("MAGI CORE INITIALIZED");
-            typeLogEntry(`AGENTS ONLINE: ${event.agents?.join(" / ") ?? "MELCHIOR / BALTHASAR / CASPER"}`);
+            typeLogEntry(
+              `AGENTS ONLINE: ${event.agents?.join(" / ") ?? "MELCHIOR / BALTHASAR / CASPER"}`
+            );
             break;
 
           case "round_started":
@@ -254,23 +272,23 @@ export default function Home() {
           case "decision":
             setAgentState(String(event.agent).toUpperCase(), verdictToState(event.verdict));
             typeLogEntry(
-              `${String(event.agent).toUpperCase()} → ${String(event.verdict).toUpperCase()} (${Math.round(Number(event.confidence ?? 0) * 100)}%)`
+              `${String(event.agent).toUpperCase()} \u2192 ${String(event.verdict).toUpperCase()} (${Math.round(
+                Number(event.confidence ?? 0) * 100
+              )}%)`
             );
             if (event.summary) {
-              const summary = String(event.summary);
-              const preview =
-                summary.length > 100
-                  ? `${summary.slice(0, 100)}...`
-                  : summary;
-
               typeLogEntry(
-                `${String(event.agent).toUpperCase()}: ${preview}`
+                `${String(event.agent).toUpperCase()}: ${String(event.summary)}`
               );
             }
             break;
 
           case "message":
-            typeLogEntry(`${String(event.sender).toUpperCase()}${event.target ? ` → ${String(event.target).toUpperCase()}` : ""}: ${event.content ?? ""}`);
+            typeLogEntry(
+              `${String(event.sender).toUpperCase()}${
+                event.target ? ` \u2192 ${String(event.target).toUpperCase()}` : ""
+              }: ${event.content ?? ""}`
+            );
             break;
 
           case "agent_thinking":
@@ -296,52 +314,34 @@ export default function Home() {
 
           case "synthesis_started":
             typeLogEntry("MAGI CENTRAL SYNTHESIS");
-            setSynthesis("synthesizing...");
             break;
 
           case "synthesis_chunk":
             if (typeof event.content === "string") {
-              setSynthesis((current) =>
-                current === "synthesizing..." ? event.content : current + event.content
-              );
+              setSynthesis((current) => current + event.content);
             }
             break;
-          
-          case "completed": {
-            const finalVerdict = String(
-              event.final_verdict ?? ""
-            ).toLowerCase();
 
-            if (
-              finalVerdict === "approve" ||
-              finalVerdict === "conditional" ||
-              finalVerdict === "reject"
-            ) {
+          case "completed": {
+            const finalVerdict = String(event.final_verdict ?? "").toLowerCase();
+
+            if (finalVerdict === "approve" || finalVerdict === "conditional" || finalVerdict === "reject") {
               setVerdict(finalVerdict);
             }
 
-            const finalDecisions = Array.isArray(event.decisions)
-              ? event.decisions
-              : [];
+            const finalDecisions = Array.isArray(event.decisions) ? event.decisions : [];
 
             const finalConfidence =
               typeof event.final_confidence === "number"
                 ? Math.max(0, Math.min(1, event.final_confidence))
                 : finalDecisions.length
                   ? finalDecisions.reduce(
-                      (
-                        sum: number,
-                        decision: { confidence?: number }
-                      ) => sum + Number(decision.confidence ?? 0),
+                      (sum: number, decision: { confidence?: number }) => sum + Number(decision.confidence ?? 0),
                       0
                     ) / finalDecisions.length
                   : null;
 
-            setConfidence(
-              finalConfidence !== null
-                ? Math.round(finalConfidence * 100)
-                : null
-            );
+            setConfidence(finalConfidence !== null ? Math.round(finalConfidence * 100) : null);
 
             const verdictText =
               finalVerdict === "approve"
@@ -353,8 +353,7 @@ export default function Home() {
                     : "UNRESOLVED";
 
             const agreeingAgents = finalDecisions.filter(
-              (decision: { verdict?: string }) =>
-                String(decision.verdict ?? "").toLowerCase() === finalVerdict
+              (decision: { verdict?: string }) => String(decision.verdict ?? "").toLowerCase() === finalVerdict
             ).length;
 
             setConsensus(
@@ -367,7 +366,7 @@ export default function Home() {
             typeLogEntry(`FINAL VERDICT: ${verdictText}`);
 
             break;
-          }  
+          }
 
           case "synthesis":
             if (typeof event.content === "string") {
@@ -405,316 +404,332 @@ export default function Home() {
   }
 
   const verdictLabel = verdict
-    ? {
+    ? ({
         approve: "AGREE",
         conditional: "CONDITIONAL",
         reject: "DISAGREE",
-      }[verdict]
+      } as const)[verdict]
     : "---";
 
   return (
-    <main className="magi-screen">
-      {/* =========================================
-          TOP BAR
-      ========================================= */}
+    <>
+      <div className="crt-overlay" />
 
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-name">
-            MAGI SYSTEM
-          </span>
+      <main className="magi-app">
+        {/* ============================= HEADER ============================= */}
+        <header className="app-header">
+          <div className="header-brand">
+            <div className="header-warning">
+              <span className="header-warning-text">NERV ONLY</span>
+              <span className="header-warning-marks">
+                <span className="header-warning-mark" />
+                <span className="header-warning-mark" />
+                <span className="header-warning-mark" />
+                <span className="header-warning-mark" />
+              </span>
+            </div>
 
-          <span className="version">
-            VER.1.0
-          </span>
-        </div>
-
-        <div className="online">
-          ONLINE
-        </div>
-      </header>
-
-      {/* =========================================
-          MAIN AREA
-      ========================================= */}
-
-      <section className="main-grid">
-        {/* =====================================
-            QUESTION
-        ===================================== */}
-
-        <aside className="question-section">
-          <div className="section-title">
-            QUESTION
+            <div className="header-title-row">
+              <h1 className="header-title">MAGI SYSTEM</h1>
+              <span className="header-version">VER.1.0</span>
+            </div>
           </div>
 
-          <div className="question-box">
-            <span className="prompt">
-              &gt;
-            </span>
-
-            <textarea
-              value={question}
-              onChange={(event) =>
-                setQuestion(event.target.value)
-              }
-              placeholder="ENTER QUESTION..."
-              spellCheck={false}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                  event.preventDefault();
-                  event.currentTarget.scrollBy({
-                    top: event.key === "ArrowDown" ? 100 : -100,
-                    behavior: "smooth",
-                  });
-                }
-              }}
-            />
+          <div className="header-center">
+            <div className="header-center-jp">内部管理システム</div>
+            <div className="header-center-sub">MAGI - MELCHIOR / BALTHASAR / CASPER</div>
           </div>
 
-          <button
-            className={`analyze-button ${
-              isAnalyzing ? "analyzing" : ""
-            }`}
-            onClick={analyze}
-            disabled={
-              isAnalyzing || !question.trim()
-            }
-          >
-            <span>
-              {isAnalyzing
-                ? "ANALYZING"
-                : "ANALYZE"}
-            </span>
-
-          </button>
-        </aside>
-
-        {/* =====================================
-            MAGI CORE
-        ===================================== */}
-
-        <section className="core-section">
-          {/* BALTHASAR */}
-
-          <div className="agent-top">
-            <AgentPanel
-              name={agents[0].name}
-              number={agents[0].number}
-              state={agents[0].state}
-            />
+          <div className="header-status">
+            <span className="header-status-text">ONLINE</span>
           </div>
+        </header>
 
-          {/* CASPER + MELCHIOR */}
+        {/* ============================== MAIN =============================== */}
+        <section className="app-main">
+          {/* -------------------------- QUESTION -------------------------- */}
+          <aside className="panel question-panel">
+            <div className="panel-header">
+              <span className="panel-title">QUESTION</span>
+              <span className="panel-deco">///</span>
+            </div>
 
-          <div className="agent-bottom">
-            <AgentPanel
-              name={agents[1].name}
-              number={agents[1].number}
-              state={agents[1].state}
-            />
+            <div className="question-body">
+              <img
+                src="/nerv-logo.png"
+                alt=""
+                className="question-watermark-logo"
+              />
+              <span className="question-prompt">&gt;</span>
+              <textarea
+                className="question-textarea"
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                placeholder="ENTER QUERY PARAMETERS..."
+                spellCheck={false}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    event.currentTarget.scrollBy({
+                      top: event.key === "ArrowDown" ? 100 : -100,
+                      behavior: "smooth",
+                    });
+                  }
+                }}
+              />
+            </div>
 
-            <AgentPanel
-              name={agents[2].name}
-              number={agents[2].number}
-              state={agents[2].state}
-            />
-          </div>
+            <button
+              className={`analyze-button ${isAnalyzing ? "is-analyzing" : ""}`}
+              onClick={analyze}
+              disabled={isAnalyzing || !question.trim()}
+            >
+              {isAnalyzing ? "ANALYZING" : "ANALYZE"}
+            </button>
 
-          {/* MAGI LABEL */}
+            <div className={`analyzing-box ${isAnalyzing ? "is-active" : "is-idle"}`}>
+              <div className="analyzing-row">
+                <span className="analyzing-label">{isAnalyzing ? "ANALYZING..." : "STANDBY"}</span>
+                <span className="analyzing-jp">{isAnalyzing ? "分析中" : "待機中"}</span>
+              </div>
+              <div className="analyzing-divider" />
+              <EqBars active={isAnalyzing} />
+            </div>
+          </aside>
 
-          <div className="magi-core">
-            <span>MAGI</span>
-          </div>
+          {/* --------------------------- MAGI CORE -------------------------- */}
+          <section className="panel core-panel">
+            <div className="core-frame">
+              <div className="core-divider" />
+
+              <AgentBlock name={agents[0].name} number={agents[0].number} state={agents[0].state} position="top" />
+
+              <div className="agent-block--bottom">
+                <AgentBlock
+                  name={agents[1].name}
+                  number={agents[1].number}
+                  state={agents[1].state}
+                  position="bottom-left"
+                />
+                <AgentBlock
+                  name={agents[2].name}
+                  number={agents[2].number}
+                  state={agents[2].state}
+                  position="bottom-right"
+                />
+              </div>
+
+              <div className="magi-diamond-wrap">
+                <span className="magi-tick magi-tick-top" />
+                <span className="magi-tick magi-tick-bottom" />
+                <div className="magi-diamond" />
+                <div className="magi-diamond-inner" />
+                <div className="magi-diamond-label">
+                  <span className="magi-diamond-text">MAGI</span>
+                  <span className="magi-diamond-jp">マギ</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* --------------------------- RIGHT SIDE -------------------------- */}
+          <aside className="right-column">
+            <div className="panel status-panel">
+              <div className="panel-header">
+                <span className="panel-title">SYSTEM STATUS</span>
+                <span className="panel-deco">///</span>
+              </div>
+
+              <div className="status-lines">
+                <p className="status-line">
+                  <span>&gt; MAGI CORE SYSTEM:</span>
+                  <span className="status-line-value">ONLINE</span>
+                </p>
+                <p className="status-line">
+                  <span>&gt; ALL MODULES:</span>
+                  <span className="status-line-value">NOMINAL</span>
+                </p>
+                <p className="status-line">
+                  <span>&gt; LINK STATUS:</span>
+                  <span className="status-line-value">STABLE</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="panel debate-panel">
+              <div className="debate-watermark">
+                <img src="/nerv-logo.png" alt="" />
+              </div>
+              <div className="panel-header">
+                <span className="panel-title">DEBATE LOG</span>
+                <span className="panel-deco">///</span>
+              </div>
+
+              <div
+                className="debate-log"
+                ref={logRef}
+                tabIndex={0}
+                onScroll={(event) => {
+                  const element = event.currentTarget;
+                  logAutoScrollRef.current =
+                    element.scrollHeight - element.scrollTop - element.clientHeight < 8;
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    logAutoScrollRef.current = false;
+                    scrollPanel(logRef, event.key === "ArrowDown" ? 1 : -1);
+                  }
+                }}
+              >
+                {debateLog.map((entry, index) => {
+                  const isIdleMessage =
+                    entry === "awaiting analysis" ||
+                    entry === "analysis pending";
+
+                  return (
+                    <p
+                      key={`${entry}-${index}`}
+                      className={isIdleMessage ? "debate-idle-message" : ""}
+                    >
+                      &gt; {entry}
+                      {isIdleMessage && (
+                        <span className="idle-dots" aria-hidden="true">
+                          <span>.</span>
+                          <span>.</span>
+                          <span>.</span>
+                        </span>
+                      )}
+
+                      {index === debateLog.length - 1 && isAnalyzing && !isIdleMessage && (
+                        <span className="debate-cursor">_</span>
+                      )}
+                    </p>
+                  );
+                })}
+              </div>
+            </div>
+          </aside>
         </section>
 
-        {/* =====================================
-            RIGHT SIDE
-        ===================================== */}
-
-        <aside className="right-section">
-          {/* SYSTEM STATUS */}
-
-          <div className="hud-panel status-panel">
-            <div className="hud-title">
-              SYSTEM STATUS
+        {/* ============================= BOTTOM ============================== */}
+        <section className="app-bottom">
+          <div className={`panel verdict-panel state-${verdict ?? "idle"}`}>
+            <div className="panel-header">
+              <span className="panel-title">FINAL VERDICT</span>
+              <span className="panel-deco">///</span>
             </div>
 
-            <div className="terminal-lines">
-              <p>
-                &gt; MAGI CORE SYSTEM :
-                <span> ONLINE</span>
-              </p>
+            <div className={`verdict-box ${verdict ? `state-${verdict}` : ""}`}>
+              <span className="verdict-value-text">{verdictLabel}</span>
+            </div>
 
-              <p>
-                &gt; ALL MODULES :
-                <span> NOMINAL</span>
-              </p>
+            <div className="confidence-row">
+              <span className="confidence-label">
+                CONFIDENCE LEVEL
+                <span className="confidence-jp">信頼度</span>
+              </span>
+              <span className="confidence-value">{confidence !== null ? `${confidence}%` : "--%"}</span>
+            </div>
 
-              <p>
-                &gt; LINK STATUS :
-                <span> STABLE</span>
-              </p>
+            <div className="confidence-bar-track">
+              <div
+                className="confidence-bar-fill"
+                style={{ width: confidence !== null ? `${confidence}%` : "0%" }}
+              />
             </div>
           </div>
 
-          {/* DEBATE LOG */}
+          <div className="panel synthesis-panel">
+            <div className="panel-header">
+              <span className="panel-title">MAGI SYNTHESIS</span>
+              <span className="panel-deco">///</span>
+            </div>
 
-          <div className="hud-panel debate-panel">
-            <div className="hud-title">
-              DEBATE LOG
+            <div className="synthesis-watermark">
+              <img
+                src="/nerv-logo.png"
+                alt="NERV"
+                className="synthesis-watermark-logo"
+              />
             </div>
 
             <div
-              className="terminal-log keyboard-scroll"
-              ref={logRef}
+              className="synthesis-body"
+              ref={synthesisRef}
               tabIndex={0}
               onScroll={(event) => {
                 const element = event.currentTarget;
-                logAutoScrollRef.current =
+                synthesisAutoScrollRef.current =
                   element.scrollHeight - element.scrollTop - element.clientHeight < 8;
               }}
               onKeyDown={(event) => {
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                   event.preventDefault();
-                  logAutoScrollRef.current = false;
-                  scrollPanel(logRef, event.key === "ArrowDown" ? 1 : -1);
+                  synthesisAutoScrollRef.current = false;
+                  scrollPanel(synthesisRef, event.key === "ArrowDown" ? 1 : -1);
                 }
               }}
             >
-              {debateLog.map((entry, index) => (
-                <p key={`${entry}-${index}`}>
-                  &gt; {entry}
-                  {index === debateLog.length - 1 &&
-                    isAnalyzing && (
-                      <span className="cursor">
-                        _
-                      </span>
-                    )}
-                </p>
-              ))}
+              <p className={synthesis === "analysis pending" ? "synthesis-idle-message" : ""}>
+                &gt; {synthesis}
+
+                {synthesis === "analysis pending" && (
+                  <span className="idle-dots" aria-hidden="true">
+                    <span>.</span>
+                    <span>.</span>
+                    <span>.</span>
+                  </span>
+                )}
+
+                {isAnalyzing && synthesis !== "analysis pending" && (
+                  <span className="debate-cursor">_</span>
+                )}
+              </p>
             </div>
           </div>
-        </aside>
-      </section>
 
-      {/* =========================================
-          BOTTOM AREA
-      ========================================= */}
+          <div className="panel consensus-panel">
+            <div className="panel-header">
+              <span className="panel-title">CONSENSUS</span>
+              <span className="panel-deco">///</span>
+            </div>
 
-      <section className="bottom-grid">
-        {/* FINAL VERDICT */}
+            <div className="consensus-body">
+              <span
+                className={`consensus-main ${
+                  consensus === "AWAITING DEBATE" ? "consensus-idle-message" : ""
+                }`}
+              >
+                {consensus}
 
-        <div
-          className={`verdict-panel ${
-            verdict
-              ? `verdict-${verdict}`
-              : ""
-          }`}
-        >
-          <div className="hud-title">
-            FINAL VERDICT
+                {consensus === "AWAITING DEBATE" && (
+                  <span className="idle-dots" aria-hidden="true">
+                    <span>.</span>
+                    <span>.</span>
+                    <span>.</span>
+                  </span>
+                )}
+              </span>
+            </div>
+
+            <div className="consensus-dots">
+              <span className="consensus-dot" />
+              <span className="consensus-dot" />
+              <span className="consensus-dot" />
+            </div>
           </div>
+        </section>
 
-          <div className="verdict-value">
-            {verdictLabel}
-          </div>
-
-          <div className="confidence-label">
-            CONFIDENCE
-          </div>
-
-          <div className="confidence-value">
-            {confidence !== null
-              ? `${confidence}%`
-              : "--%"}
-          </div>
-
-          <div className="confidence-bar">
-            <div
-              style={{
-                width:
-                  confidence !== null
-                    ? `${confidence}%`
-                    : "0%",
-              }}
-            />
-          </div>
-        </div>
-
-        {/* SYNTHESIS */}
-
-        <div className="synthesis-panel">
-          <div className="hud-title">
-            MAGI SYNTHESIS
-          </div>
-
-          <div
-            className="synthesis-content keyboard-scroll"
-            ref={synthesisRef}
-            tabIndex={0}
-            onScroll={(event) => {
-              const element = event.currentTarget;
-              synthesisAutoScrollRef.current =
-                element.scrollHeight - element.scrollTop - element.clientHeight < 8;
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                event.preventDefault();
-                synthesisAutoScrollRef.current = false;
-                scrollPanel(synthesisRef, event.key === "ArrowDown" ? 1 : -1);
-              }
-            }}
-          >
-            <p>
-              &gt; {synthesis}
-              {isAnalyzing && (
-                <span className="cursor">
-                  _
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-
-        {/* CONSENSUS */}
-
-        <div className="legend-panel consensus-panel">
-          <div className="hud-title">
-            CONSENSUS
-          </div>
-
-          <div className="consensus-content">
-            {consensus}
-          </div>
-        </div>
-
-      </section>
-      <style jsx global>{`
-        .keyboard-scroll {
-          scrollbar-width: none;
-          -ms-overflow-style: none;
-          overflow-y: auto;
-        }
-
-        .keyboard-scroll::-webkit-scrollbar {
-          display: none;
-          width: 0;
-          height: 0;
-        }
-
-        .consensus-panel .consensus-content {
-          color: #65ff65;
-          line-height: 1.7;
-          letter-spacing: 0.06em;
-          font-size: 0.78rem;
-          text-transform: uppercase;
-          padding: 18px 20px;
-          display: flex;
-          align-items: center;
-          min-height: 130px;
-        }
-      `}</style>
-    </main>
+        {/* ============================= FOOTER =============================== */}
+        <footer className="app-footer">
+          <span>
+            <span className="footer-dot" />
+            MAGI CONNECTED
+          </span>
+          <span>AUTHORIZED PERSONNEL ONLY ////////</span>
+        </footer>
+      </main>
+    </>
   );
 }
