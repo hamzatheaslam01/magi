@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-# Make the existing backend package importable.
+# Add backend/ to Python's import path
 backend_path = Path(__file__).resolve().parent.parent / "backend"
 sys.path.insert(0, str(backend_path))
 
