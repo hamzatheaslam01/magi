@@ -155,7 +155,10 @@ export default function Home() {
     setAgents(initialAgents.map((agent) => ({ ...agent, state: "thinking" })));
 
     try {
-      const response = await fetch("http://localhost:8000/debate/stream", {
+      const apiBaseUrl =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+      const response = await fetch(`${apiBaseUrl}/debate/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
