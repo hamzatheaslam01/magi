@@ -10,10 +10,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
-from app.models import AgentName
-from app.real_agents import RealAgent
-from app.streaming_debate import StreamingDebateEngine
-from app.llm.openrouter import OpenRouterProvider
+from .models import AgentName
+from .real_agents import RealAgent
+from .streaming_debate import StreamingDebateEngine
+from .llm.openrouter import OpenRouterProvider
 
 
 load_dotenv()

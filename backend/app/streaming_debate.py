@@ -6,6 +6,7 @@ can render real MAGI activity instead of simulating it.
 """
 
 import asyncio
+import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -104,14 +105,6 @@ class StreamingDebateEngine(DebateEngine):
                 "confidence": decision.confidence,
                 "severity": decision.severity.value,
                 "summary": decision.summary,
-            }
-
-            yield {
-                "type": "message",
-                "round": 1,
-                "sender": message.sender.value.upper(),
-                "message_type": message.message_type.value.upper(),
-                "content": message.content,
             }
 
         state.decisions = decisions
@@ -339,29 +332,23 @@ class StreamingDebateEngine(DebateEngine):
                 "summary": decision.summary,
             }
 
-            yield {
-                "type": "message",
-                "round": 4,
-                "sender": message.sender.value.upper(),
-                "message_type": "REVISION",
-                "content": message.content,
-            }
-
         if revised:
             state.decisions = revised
 
         yield {
-    "type": "round_completed",
-    "round": 4,
-}
+            "type": "round_completed",
+            "round": 4,
+        }
 
-# ============================================================
-# MAGI CENTRAL SYNTHESIS
-# ============================================================
+                # ============================================================
+        # MAGI CENTRAL SYNTHESIS
+        # ============================================================
 
         yield {
             "type": "synthesis_started",
         }
+
+        print("[SYNTHESIS] Starting MAGI Central...")
 
         final_decisions = state.decisions
 
@@ -389,62 +376,75 @@ class StreamingDebateEngine(DebateEngine):
         )
 
         synthesis_system_prompt = """
-        You are MAGI CENTRAL, the final synthesis intelligence of the MAGI system.
+You are MAGI CENTRAL, the final reasoning layer of the MAGI system.
 
-        You are NOT another debate participant.
+You are NOT a debate participant.
 
-        Your job is to examine the complete debate and produce the final human-readable
-        judgment.
+Your job is to produce a concise FINAL VERDICT SUMMARY from the completed
+debate.
 
-        The three MAGI units have deliberately different perspectives:
+Do NOT write separate sections for MELCHIOR, BALTHASAR, or CASPER.
+Do NOT mention the agents by name.
 
-        MELCHIOR = analytical, evidence-driven, rigorous.
-        BALTHASAR = skeptical, adversarial, focused on risks and failure.
-        CASPER = human-centered, contextual, pragmatic.
+The output must read like the conclusion of a serious expert panel.
 
-        Do not simply average their positions.
+Structure the synthesis around:
 
-        Identify:
-        - where they genuinely disagreed
-        - which arguments survived the debate
-        - which arguments were weakened
-        - where one agent changed or strengthened another's reasoning
-        - the strongest consideration on each side
-        - the final conclusion
+1. FINAL JUDGMENT
+   State clearly what MAGI ultimately concludes.
 
-        The result should sound like an intelligent synthesis of an actual debate,
-        not a generic "it depends" answer.
+2. WHY
+   Give the 2-3 strongest reasons that survived the debate.
 
-        Do not mention JSON, prompts, models, or being an AI.
+3. WHAT CHANGED
+   Briefly identify the most important argument, assumption, or piece of
+   reasoning that was weakened, conceded, or refined during the debate.
 
-        Return ONLY the synthesis text.
-        """
+4. DECISIVE CONDITION
+   If the conclusion depends on a specific condition, state it clearly.
+   If it does not, do not invent one.
+
+IMPORTANT:
+
+- Do NOT simply concatenate the agents' summaries.
+- Do NOT write one paragraph per agent.
+- Do NOT repeat every argument from the debate.
+- Do NOT produce meeting notes.
+- Do NOT invent facts or arguments.
+- Do NOT treat majority vote as automatically correct.
+- Resolve disagreements where the debate actually resolves them.
+- Preserve meaningful uncertainty where it remains.
+- Directly answer the original question.
+- Be concise and decisive.
+
+Return ONLY the final verdict summary.
+
+Use approximately 120-180 words.
+Use 2-3 short paragraphs.
+"""
 
         synthesis_user_prompt = f"""
-        QUESTION:
+QUESTION:
 
-        {question}
+{question}
 
-        FINAL AGENT POSITIONS:
+FINAL AGENT POSITIONS:
 
-        {decision_text}
+{decision_text}
 
-        FULL DEBATE:
+FULL DEBATE:
 
-        {debate_text}
+{debate_text}
 
-        Write the final MAGI synthesis.
-
-        Give a clear conclusion. If the answer is conditional, explain precisely
-        what the decisive conditions are rather than hiding behind vague nuance.
-
-        Keep it to approximately 2-4 paragraphs.
-        """
+Produce the final MAGI verdict summary.
+"""
 
         try:
-            # All agents share the same provider, so use the existing OpenRouter
-            # connection rather than creating another API client.
-            synthesis_provider = next(iter(self.agents.values())).provider
+            synthesis_provider = next(
+                iter(self.agents.values())
+            ).provider
+
+            synthesis_start = time.perf_counter()
 
             synthesis = await asyncio.to_thread(
                 synthesis_provider.generate,
@@ -452,10 +452,17 @@ class StreamingDebateEngine(DebateEngine):
                 synthesis_user_prompt,
             )
 
+            print(
+                f"[TIMING] MAGI CENTRAL synthesis: "
+                f"{time.perf_counter() - synthesis_start:.2f}s"
+            )
+
             synthesis = synthesis.strip()
 
             if not synthesis:
-                raise ValueError("MAGI synthesis returned an empty response.")
+                raise ValueError(
+                    "MAGI synthesis returned an empty response."
+                )
 
             yield {
                 "type": "synthesis",
@@ -471,6 +478,7 @@ class StreamingDebateEngine(DebateEngine):
         # ============================================================
         # FINAL STATE
         # ============================================================
+
         final_decisions = state.decisions
 
         counts: dict[str, int] = {

@@ -55,7 +55,7 @@ function AgentPanel({
       <div className="agent-inner">
         <div className="agent-name">
           {name}
-          <span> • {number}</span>
+          <span>  {number}</span>
         </div>
 
         <div className="agent-status">
@@ -105,28 +105,78 @@ export default function Home() {
     return "thinking";
   }
 
-  async function typeLogEntry(entry: string) {
-    setDebateLog((current) => [...current, ""]);
-    for (let i = 1; i <= entry.length; i += 1) {
-      setDebateLog((current) => {
-        const next = [...current];
-        next[next.length - 1] = entry.slice(0, i);
-        return next;
-      });
-      if (i % 1 === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 12));
+  // The backend already streams events progressively. Rendering each event
+  // immediately keeps the SSE reader responsive instead of blocking it behind
+  // a frontend typing animation.
+    const logQueueRef = useRef<string[]>([]);
+  const logTypingRef = useRef(false);
+  const synthesisAnimationRef = useRef(0);
+
+  function typeLogEntry(entry: string) {
+    logQueueRef.current.push(entry);
+    processLogQueue();
+  }
+
+  async function processLogQueue() {
+    if (logTypingRef.current) return;
+
+    logTypingRef.current = true;
+
+    try {
+      while (logQueueRef.current.length > 0) {
+        const entry = logQueueRef.current.shift();
+
+        if (!entry) continue;
+
+        setDebateLog((current) => [...current, ""]);
+
+        let index = 0;
+
+        while (index < entry.length) {
+          index = Math.min(index + 4, entry.length);
+
+          const partial = entry.slice(0, index);
+
+          setDebateLog((current) => {
+            if (!current.length) return current;
+
+            const updated = [...current];
+            updated[updated.length - 1] = partial;
+            return updated;
+          });
+
+          await new Promise((resolve) => setTimeout(resolve, 4));
+        }
       }
+    } finally {
+      logTypingRef.current = false;
     }
   }
 
-  async function typeSynthesis(value: string) {
+  function typeSynthesis(value: string) {
+    const animationId = ++synthesisAnimationRef.current;
+
     setSynthesis("");
-    for (let i = 1; i <= value.length; i += 1) {
-      setSynthesis(value.slice(0, i));
-      if (i % 1 === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 14));
+
+    let index = 0;
+
+    const typeNext = () => {
+      if (animationId !== synthesisAnimationRef.current) {
+        return;
       }
-    }
+
+      if (index >= value.length) {
+        return;
+      }
+
+      index += 1;
+
+      setSynthesis(value.slice(0, index));
+
+      window.setTimeout(typeNext, 4);
+    };
+
+    typeNext();
   }
 
   useEffect(() => {
@@ -192,25 +242,35 @@ export default function Home() {
 
         switch (event.type) {
           case "analysis_started":
-            await typeLogEntry("MAGI CORE INITIALIZED");
-            await typeLogEntry(`AGENTS ONLINE: ${event.agents?.join(" / ") ?? "MELCHIOR / BALTHASAR / CASPER"}`);
+            typeLogEntry("MAGI CORE INITIALIZED");
+            typeLogEntry(`AGENTS ONLINE: ${event.agents?.join(" / ") ?? "MELCHIOR / BALTHASAR / CASPER"}`);
             break;
 
           case "round_started":
-            await typeLogEntry(`ROUND ${event.round}: ${event.label ?? "PROCESSING"}`);
+            typeLogEntry(`ROUND ${event.round}: ${event.label ?? "PROCESSING"}`);
             setAgents((current) => current.map((agent) => ({ ...agent, state: "thinking" })));
             break;
 
           case "decision":
             setAgentState(String(event.agent).toUpperCase(), verdictToState(event.verdict));
-            await typeLogEntry(`${String(event.agent).toUpperCase()} → ${String(event.verdict).toUpperCase()} (${Math.round(Number(event.confidence ?? 0) * 100)}%)`);
+            typeLogEntry(
+              `${String(event.agent).toUpperCase()} → ${String(event.verdict).toUpperCase()} (${Math.round(Number(event.confidence ?? 0) * 100)}%)`
+            );
             if (event.summary) {
-              await typeLogEntry(`${String(event.agent).toUpperCase()}: ${event.summary}`);
+              const summary = String(event.summary);
+              const preview =
+                summary.length > 100
+                  ? `${summary.slice(0, 100)}...`
+                  : summary;
+
+              typeLogEntry(
+                `${String(event.agent).toUpperCase()}: ${preview}`
+              );
             }
             break;
 
           case "message":
-            await typeLogEntry(`${String(event.sender).toUpperCase()}${event.target ? ` → ${String(event.target).toUpperCase()}` : ""}: ${event.content ?? ""}`);
+            typeLogEntry(`${String(event.sender).toUpperCase()}${event.target ? ` → ${String(event.target).toUpperCase()}` : ""}: ${event.content ?? ""}`);
             break;
 
           case "agent_thinking":
@@ -218,21 +278,24 @@ export default function Home() {
             break;
 
           case "agent_error":
-            await typeLogEntry(`${String(event.agent).toUpperCase()} ERROR: ${event.message ?? "UNKNOWN ERROR"}`);
+            typeLogEntry(`${String(event.agent).toUpperCase()} ERROR: ${event.message ?? "UNKNOWN ERROR"}`);
             break;
 
           case "round_completed":
-            await typeLogEntry(`ROUND ${event.round} COMPLETE`);
+            typeLogEntry(`ROUND ${event.round} COMPLETE`);
+
             if (event.round === 1) {
-              // Keep all three Round 1 verdict colours visible before Round 2 starts.
-              await new Promise((resolve) => setTimeout(resolve, 1200));
+              // Give the UI time to display all three Round 1 verdict colours
+              // before Round 2 begins.
+              await new Promise((resolve) => setTimeout(resolve, 1500));
             } else if (event.round < 4) {
               await new Promise((resolve) => setTimeout(resolve, 500));
             }
+
             break;
 
           case "synthesis_started":
-            await typeLogEntry("MAGI CENTRAL SYNTHESIS");
+            typeLogEntry("MAGI CENTRAL SYNTHESIS");
             setSynthesis("synthesizing...");
             break;
 
@@ -243,32 +306,33 @@ export default function Home() {
               );
             }
             break;
-
-          case "synthesis":
-            if (typeof event.content === "string") {
-              await typeSynthesis(event.content);
-            }
-            break;
-
-          case "synthesis_error":
-            await typeLogEntry(`SYNTHESIS ERROR: ${event.message ?? "UNKNOWN ERROR"}`);
-            setSynthesis("synthesis unavailable");
-            break;
-
+          
           case "completed": {
-            const finalVerdict = String(event.final_verdict ?? "").toLowerCase();
-            if (["approve", "conditional", "reject"].includes(finalVerdict)) {
-              setVerdict(finalVerdict as "approve" | "conditional" | "reject");
+            const finalVerdict = String(
+              event.final_verdict ?? ""
+            ).toLowerCase();
+
+            if (
+              finalVerdict === "approve" ||
+              finalVerdict === "conditional" ||
+              finalVerdict === "reject"
+            ) {
+              setVerdict(finalVerdict);
             }
-            const finalDecisions = Array.isArray(event.decisions) ? event.decisions : [];
+
+            const finalDecisions = Array.isArray(event.decisions)
+              ? event.decisions
+              : [];
 
             const finalConfidence =
               typeof event.final_confidence === "number"
                 ? Math.max(0, Math.min(1, event.final_confidence))
                 : finalDecisions.length
                   ? finalDecisions.reduce(
-                      (sum: number, decision: { confidence?: number }) =>
-                        sum + Number(decision.confidence ?? 0),
+                      (
+                        sum: number,
+                        decision: { confidence?: number }
+                      ) => sum + Number(decision.confidence ?? 0),
                       0
                     ) / finalDecisions.length
                   : null;
@@ -299,25 +363,22 @@ export default function Home() {
                 : "NO CONSENSUS REACHED."
             );
 
-            // The current backend returns the final agent summaries in the
-            // completed event. Turn those real results into the synthesis.
-            if (finalDecisions.length) {
-              const synthesisText = finalDecisions
-                .map(
-                  (decision: { agent: string; summary: string }) =>
-                    `${decision.agent}: ${decision.summary}`
-                )
-                .join(" | ");
+            typeLogEntry("MAGI SYNTHESIS COMPLETE");
+            typeLogEntry(`FINAL VERDICT: ${verdictText}`);
 
-              await typeSynthesis(synthesisText);
-            } else {
-              await typeSynthesis("MAGI synthesis unavailable.");
-            }
-
-            await typeLogEntry("MAGI SYNTHESIS COMPLETE");
-            await typeLogEntry(`FINAL VERDICT: ${verdictText}`);
             break;
-          }
+          }  
+
+          case "synthesis":
+            if (typeof event.content === "string") {
+              typeSynthesis(event.content);
+            }
+            break;
+
+          case "synthesis_error":
+            typeLogEntry(`SYNTHESIS ERROR: ${event.message ?? "UNKNOWN ERROR"}`);
+            setSynthesis("synthesis unavailable");
+            break;
 
           case "error":
             throw new Error(event.message ?? "Unknown MAGI backend error.");
@@ -336,7 +397,7 @@ export default function Home() {
       if (buffer.trim()) await processEvent(buffer);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to reach MAGI backend.";
-      await typeLogEntry(`SYSTEM ERROR: ${message}`);
+      typeLogEntry(`SYSTEM ERROR: ${message}`);
       setSynthesis("analysis failed");
     } finally {
       setIsAnalyzing(false);
