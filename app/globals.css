@@ -2159,8 +2159,8 @@ body {
   }
 
   .magi-diamond-wrap {
-    width: 76px;
-    height: 76px;
+    width: 100px;
+    height: 100px;
   }
 
   .magi-diamond-text {
@@ -2646,8 +2646,8 @@ body {
   top: 50% !important;
   left: 50% !important;
 
-  width: 88px !important;
-  height: 88px !important;
+  width: 120px !important;
+  height: 120px !important;
 
   transform: translate(-50%, -50%) !important;
 
@@ -2726,3 +2726,4 @@ body {
 .magi-diamond-wrap {
   z-index: 100 !important;
 }
+
