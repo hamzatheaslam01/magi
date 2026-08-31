@@ -621,7 +621,7 @@ body {
   content: "";
   position: absolute;
 
-  top: 54px;
+  top: 0;
   bottom: 0;
   left: 50%;
 
@@ -1835,7 +1835,7 @@ body {
 
   .core-frame {
     width: 100%;
-    min-height: 390px;
+    min-height: 420px;
   }
 
   .agent-block {
@@ -1843,15 +1843,25 @@ body {
   }
 
   .agent-block--top {
-    padding-top: 18px;
+    flex: 0 0 42%;
+    padding-top: 14px;
+    justify-content: flex-start;
   }
+
   .agent-block--bottom {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: row;
     gap: 0;
   }
 
   .agent-block--bottom-left,
   .agent-block--bottom-right {
-    padding-bottom: 18px;
+    flex: 1;
+    min-width: 0;
+    padding-bottom: 14px;
+    justify-content: flex-end;
   }
 
   .agent-chip {
@@ -2119,7 +2129,7 @@ body {
   }
 
   .core-frame {
-    min-height: 350px;
+    min-height: 380px;
   }
 
   .agent-chip {
@@ -2463,4 +2473,256 @@ body {
 
 .agent-block--bottom-right.state-idle .agent-readout::after {
   animation-delay: 4.1s;
+}
+
+/* =========================================================
+   MAGI CORE — MOBILE GEOMETRY FIX
+   ========================================================= */
+
+/* Core is the coordinate system */
+.core-frame {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+/* Kill ALL original divider elements */
+.core-divider {
+  display: none !important;
+}
+
+.agent-block--bottom::before {
+  display: none !important;
+}
+
+/* =========================================================
+   BALTHASAR
+   ========================================================= */
+
+.agent-block--top {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+
+  height: 50% !important;
+  bottom: auto !important;
+
+  margin: 0 !important;
+
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  flex-direction: column !important;
+
+  padding: 18px 10px 10px !important;
+
+  background: var(--state-color-dim) !important;
+
+  z-index: 2 !important;
+}
+
+/* =========================================================
+   LOWER HALF WRAPPER
+   THIS was the problem.
+   ========================================================= */
+
+.agent-block--bottom {
+  position: absolute !important;
+
+  top: 50% !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+
+  width: 100% !important;
+  height: 50% !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  display: flex !important;
+  flex-direction: row !important;
+
+  background: transparent !important;
+
+  z-index: 2 !important;
+}
+
+/* =========================================================
+   CASPER
+   ========================================================= */
+
+.agent-block--bottom-left {
+  position: relative !important;
+
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+
+  width: 50% !important;
+  height: 100% !important;
+
+  flex: 0 0 50% !important;
+
+  margin: 0 !important;
+
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  flex-direction: column !important;
+
+  padding: 10px 10px 18px !important;
+
+  background: var(--state-color-dim) !important;
+
+  border-right: 1px solid var(--primary) !important;
+
+  z-index: 3 !important;
+}
+
+/* =========================================================
+   MELCHIOR
+   ========================================================= */
+
+.agent-block--bottom-right {
+  position: relative !important;
+
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+
+  width: 50% !important;
+  height: 100% !important;
+
+  flex: 0 0 50% !important;
+
+  margin: 0 !important;
+
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  flex-direction: column !important;
+
+  padding: 10px 10px 18px !important;
+
+  background: var(--state-color-dim) !important;
+
+  z-index: 3 !important;
+}
+
+/* =========================================================
+   SINGLE LOWER VERTICAL DIVIDER
+   ========================================================= */
+
+.agent-block--bottom::after {
+  content: "";
+
+  position: absolute;
+
+  top: 0;
+  bottom: 0;
+  left: 50%;
+
+  width: 1px;
+
+  background: var(--primary);
+
+  transform: translateX(-50%);
+
+  pointer-events: none;
+
+  z-index: 10;
+}
+
+/* =========================================================
+   MAGI DIAMOND
+   ========================================================= */
+
+.magi-diamond-wrap {
+  position: absolute !important;
+
+  top: 50% !important;
+  left: 50% !important;
+
+  width: 88px !important;
+  height: 88px !important;
+
+  transform: translate(-50%, -50%) !important;
+
+  z-index: 100 !important;
+}
+
+/* =========================================================
+   MAGI CORE — LOWER DIVIDER
+   ========================================================= */
+
+.core-frame::after {
+  content: "";
+
+  position: absolute;
+
+  left: 50%;
+  bottom: 0;
+
+  width: 1px;
+  height: calc(50% - 44px);
+
+  background: var(--primary);
+
+  transform: translateX(-50%);
+
+  z-index: 45;
+
+  pointer-events: none;
+}
+
+/* =========================================================
+   MAGI CORE — DIVIDER LINES
+   ========================================================= */
+
+/* Horizontal divider across the center */
+.core-frame::before {
+  content: "";
+
+  position: absolute;
+
+  left: 0;
+  right: 0;
+  top: 50%;
+
+  height: 1px;
+
+  background: var(--primary);
+
+  z-index: 40;
+
+  pointer-events: none;
+}
+
+/* Vertical divider ONLY below the MAGI emblem */
+.agent-block--bottom::after {
+  content: "";
+
+  position: absolute;
+
+  top: 0;
+  bottom: 0;
+  left: 50%;
+
+  width: 1px;
+
+  background: var(--primary);
+
+  transform: translateX(-50%);
+
+  z-index: 40;
+
+  pointer-events: none;
+}
+
+/* MAGI emblem stays above both divider lines */
+.magi-diamond-wrap {
+  z-index: 100 !important;
 }
